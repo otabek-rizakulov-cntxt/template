@@ -480,7 +480,113 @@ caught it.
 - No load, soak or performance benchmarking was done. The latency figures that
   appear in log lines (`duration=1ms`, `latencyMs: 1`) are single-request
   observations on a local machine, not throughput measurements.
-- The `docker` CI job was authored but not executed here; the image build was not
-  run locally.
+- The GitHub Actions workflow itself has not run on GitHub; only the commands it
+  invokes were executed locally. The image build **was** run locally — see §8.
 - Coverage percentages come from `jest --coverage` with `*.module.ts`, `main.ts`
   and the test fakes excluded.
+
+---
+
+## 8. Follow-up: container build defects found by running it
+
+The first push shipped a `Dockerfile` that had been reasoned about but never
+built. CI caught it immediately. Building and running it locally surfaced four
+defects, all now fixed and verified.
+
+### 8.1 `corepack enable` broke every build
+
+```
+Error: Cannot find matching keyid: {"signatures":[...],"keys":[...]}
+    at verifySignature (corepack.cjs:21535)
+    at fetchLatestStableVersion (corepack.cjs:21553)
+ERROR: process "/bin/sh -c pnpm install --frozen-lockfile" exit code: 1
+```
+
+`package.json` had no `packageManager` field, so corepack had no version to
+resolve and asked the registry for "latest stable". It verifies that response
+against signing keys **bundled in the Node image**, which are frozen at image
+release. Once the registry rotated keys, `node:22.8.0`'s corepack could no longer
+verify anything — so the failure appears with no change on our side.
+
+**Fix:** pinned `"packageManager": "pnpm@10.33.0"` and dropped corepack. The image
+installs pnpm with `npm install --global`, reading the version out of
+`packageManager` so the image can never build with a different pnpm than CI or a
+developer uses.
+
+### 8.2 The migrate step had no Prisma CLI
+
+`pnpm prune --prod` ran in the `build` stage, and `docker-compose` used that same
+stage to apply migrations — so the CLI it needed had just been deleted:
+
+```
+migrate-1  |  ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command "prisma" not found
+migrate-1  | service "migrate" didn't complete successfully: exit 254
+```
+
+**Fix:** pruning moved to a dedicated `prod-deps` stage. `build` keeps its dev
+dependencies and remains usable for migrations; `runtime` copies `node_modules`
+from `prod-deps` and `dist` from `build`.
+
+### 8.3 The production image ran in development mode
+
+The runtime image sets `ENV NODE_ENV=production`, but compose's `env_file: .env`
+overrides image `ENV`. With `NODE_ENV=development` in `.env`, the container ran
+the production image in development mode — **Swagger served on `/docs`** and raw
+error messages returned to clients:
+
+```
+container NODE_ENV=development
+GET /docs -> 200      # should be 404
+```
+
+The guard in `main.ts` was correct; the compose wiring defeated it. **Fix:**
+`NODE_ENV: production` pinned in the service's `environment` block, which takes
+precedence over `env_file`.
+
+### 8.4 A hardcoded host port
+
+`ports: '5432:5432'` failed on any machine already running PostgreSQL:
+
+```
+Bind for 0.0.0.0:5432 failed: port is already allocated
+```
+
+**Fix:** `'${POSTGRES_PORT:-5432}:5432'`, documented in `.env.example`.
+
+### Verified after the fixes
+
+Image build and inspection:
+
+```
+$ docker build --target runtime -t template:ci .        exit 0
+$ docker run --entrypoint node template:ci -e "...accessSync('/app/dist/main.js')"
+  dist/main.js present
+$ docker run --entrypoint node template:ci -e "require('bcrypt')..."
+  bcrypt OK $2b$04$          # native addon compiled against musl
+$ docker run --entrypoint node template:ci -e "require('@prisma/client')"
+  @prisma/client OK
+  user=node                  # non-root
+  src present?        no     # no sources in the runtime image
+  typescript dev dep? no     # dev dependencies pruned
+  image size          427MB
+```
+
+Full stack, `docker compose up --build`:
+
+```
+postgres   Up (healthy)
+migrate    Exited (0)   -> "All migrations have been successfully applied."
+api        Up (healthy) -> container HEALTHCHECK passed in 6s
+
+container NODE_ENV     = production
+GET  /docs             -> 404   (Swagger closed in production)
+GET  /api/health/ready -> 200   {"database":"reachable","latencyMs":1}
+POST /auth/register    -> 201
+POST /auth/login  wrong password -> 401
+POST /auth/login  correct        -> 201
+security response headers        -> 6
+```
+
+The lesson is the same one §3.6 records: the defect was not in the reasoning, it
+was in never running the thing. The image assertion in CI now covers 8.1 and 8.2;
+8.3 and 8.4 are compose-only and are not yet covered by an automated check.

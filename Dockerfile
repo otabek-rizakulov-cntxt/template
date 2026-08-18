@@ -1,29 +1,41 @@
 # syntax=docker/dockerfile:1
 
-# ---------- deps: install with the lockfile the repo actually uses ----------
-FROM node:22.8.0-alpine AS deps
-RUN apk add --no-cache libc6-compat python3 make g++
-WORKDIR /app
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-
-# ---------- build: generate the Prisma client, then compile ----------
-FROM node:22.8.0-alpine AS build
+# ---------- base: pnpm, at the version package.json pins ----------
+# Deliberately NOT `corepack enable`: with no version to resolve, corepack asks
+# the registry for "latest stable" and verifies the response against the signing
+# keys bundled in the Node image. Those keys are frozen at image-build time, so
+# once the registry rotates them every build fails with
+# "Cannot find matching keyid". Installing pnpm directly skips that machinery.
+FROM node:22.8.0-alpine AS base
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
-RUN corepack enable
+# Reading the version out of packageManager keeps one source of truth, so the
+# image can never silently build with a different pnpm than CI or a developer.
+COPY package.json ./
+RUN npm install --global "pnpm@$(node -p "require('./package.json').packageManager.split('@')[1]")" \
+  && pnpm --version
+
+# ---------- deps: full install, including native builds ----------
+FROM base AS deps
+# bcrypt compiles a native addon; build it here against this image's musl libc.
+RUN apk add --no-cache python3 make g++
+COPY pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+# ---------- build: generate the Prisma client and compile ----------
+# Dev dependencies are still present here on purpose: this stage is also what
+# docker-compose runs `prisma migrate deploy` from, since the Prisma CLI is a dev
+# dependency and the runtime image ships without it.
+FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json pnpm-lock.yaml tsconfig.json tsconfig.build.json nest-cli.json ./
+COPY pnpm-lock.yaml tsconfig.json tsconfig.build.json nest-cli.json ./
 COPY prisma ./prisma
 COPY src ./src
 RUN pnpm prisma generate
 RUN pnpm run build
-# Drop dev dependencies from the tree we are about to copy forward.
+
+# ---------- prod-deps: the dependency tree the runtime actually needs ----------
+FROM build AS prod-deps
 RUN pnpm prune --prod
 
 # ---------- runtime: no compiler, no sources, non-root ----------
@@ -33,7 +45,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV APP_PORT=3000
 
-COPY --from=build /app/node_modules ./node_modules
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY package.json ./
