@@ -1,29 +1,30 @@
-import { Transaction } from '@prisma/client';
 import { ILogger } from '@domain/logger/logger.interface';
+import { IException } from '@domain/exceptions/exceptions.interface';
 import { TransactionRepositoryI } from '@domain/repositories/transaction-repository.interface';
-import { ExceptionsService } from '@infrastructure/exceptions/exceptions.service';
 
 export class DeleteTransactionUseCases {
   constructor(
     private readonly logger: ILogger,
     private readonly transactionRepository: TransactionRepositoryI,
-    private readonly exceptionService: ExceptionsService,
+    private readonly exceptionService: IException,
   ) {}
 
-  async execute(data: Transaction): Promise<Transaction | null> {
-    const isTransactionExists = await this.transactionRepository.getTransaction(
-      data.id,
+  async execute(id: string, userId: string): Promise<void> {
+    const deleted = await this.transactionRepository.deleteTransaction(
+      id,
+      userId,
     );
 
-    if (!isTransactionExists) {
-      this.exceptionService.NotFoundException();
+    if (!deleted) {
+      this.exceptionService.NotFoundException({
+        message: `Transaction ${id} was not found`,
+        code_error: 404,
+      });
     }
-    await this.transactionRepository.deleteTransaction(data.id);
 
     this.logger.log(
       'DeleteTransactionUseCases execute',
-      'Transaction has been deleted',
+      `Transaction ${id} has been deleted`,
     );
-    return null;
   }
 }

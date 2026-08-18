@@ -1,25 +1,34 @@
-import { UserRepositoryI } from '@domain/repositories/user-repository.interface';
-import { ExceptionsService } from '@infrastructure/exceptions/exceptions.service';
 import { Users } from '@prisma/client';
+
+import { IBcryptService } from '@domain/adapters/bcrypt.interface';
+import { IException } from '@domain/exceptions/exceptions.interface';
+import {
+  RegisterUserI,
+  UserRepositoryI,
+} from '@domain/repositories/user-repository.interface';
 
 export class RegisterUseCases {
   constructor(
     private readonly userRepository: UserRepositoryI,
-    private readonly exceptionService: ExceptionsService,
+    private readonly exceptionService: IException,
+    private readonly bcryptService: IBcryptService,
   ) {}
 
-  async execute(
-    user: Pick<Users, 'email' | 'name' | 'password'>,
-  ): Promise<Users> {
-    const userExists = await this.userRepository.getUserByEmail(user.email);
+  async execute(user: RegisterUserI): Promise<Users> {
+    const existing = await this.userRepository.getUserByEmail(user.email);
 
-    if (userExists?.id) {
-      this.exceptionService.BadRequestException({
-        code_error: 400,
-        message: 'User with this email is already exists',
+    if (existing) {
+      this.exceptionService.ConflictException({
+        message: 'A user with this email already exists',
+        code_error: 409,
       });
     }
 
-    return this.userRepository.register(user);
+    // Hashing is a rule about how credentials are stored, so it belongs here
+    // rather than inside the persistence adapter.
+    return this.userRepository.register({
+      ...user,
+      password: await this.bcryptService.hash(user.password),
+    });
   }
 }

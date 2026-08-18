@@ -6,67 +6,97 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
-import { LoggerService } from '@infrastructure/logger/logger.service';
 
-interface IError {
-  message: string;
-  code_error: string;
+import { ILogger } from '@domain/logger/logger.interface';
+
+interface ErrorBody {
+  statusCode: number;
+  timestamp: string;
+  path: string;
+  message: string | string[];
+  code_error?: number | string;
 }
 
 @Catch()
 export class AllExceptionFilter implements ExceptionFilter {
-  constructor(private readonly logger: LoggerService) {}
+  constructor(
+    private readonly logger: ILogger,
+    private readonly isProduction: boolean = false,
+  ) {}
+
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const status =
-      exception instanceof HttpException
-        ? exception.getStatus()
-        : HttpStatus.INTERNAL_SERVER_ERROR;
-    const message: IError =
-      exception instanceof HttpException
-        ? (exception.getResponse() as IError)
-        : { message: (exception as Error).message, code_error: '' };
+    const isHttp = exception instanceof HttpException;
+    const status = isHttp
+      ? exception.getStatus()
+      : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const responseData = {
-      ...{
-        statusCode: status,
-        timestamp: new Date().toISOString(),
-        path: request.url,
-      },
-      ...message,
+    const body: ErrorBody = {
+      statusCode: status,
+      timestamp: new Date().toISOString(),
+      path: request.url,
+      ...this.describe(exception, isHttp, status),
     };
 
-    this.logMessage(request, message, status, exception);
-
-    response.status(status).json(responseData);
+    this.log(request, body, status, exception);
+    response.status(status).json(body);
   }
 
-  private logMessage(
+  /**
+   * Only HttpExceptions carry a message meant for a client. Anything else is an
+   * internal failure, and its message — a Prisma error, a driver stack, a
+   * connection string — must not be echoed back in production.
+   */
+  private describe(
+    exception: unknown,
+    isHttp: boolean,
+    status: number,
+  ): Pick<ErrorBody, 'message' | 'code_error'> {
+    if (isHttp) {
+      const payload = (exception as HttpException).getResponse();
+      if (typeof payload === 'string') {
+        return { message: payload };
+      }
+      const shaped = payload as {
+        message?: string | string[];
+        code_error?: number;
+      };
+      return {
+        message: shaped.message ?? (exception as HttpException).message,
+        code_error: shaped.code_error ?? status,
+      };
+    }
+
+    return {
+      message: this.isProduction
+        ? 'Internal server error'
+        : ((exception as Error)?.message ?? 'Internal server error'),
+      code_error: status,
+    };
+  }
+
+  private log(
     request: Request,
-    message: IError,
+    body: ErrorBody,
     status: number,
     exception: unknown,
   ) {
-    if (status === 500) {
+    const summary = `method=${request.method} status=${status} code_error=${
+      body.code_error ?? 'null'
+    } message=${JSON.stringify(body.message)}`;
+
+    if (status >= Number(HttpStatus.INTERNAL_SERVER_ERROR)) {
+      // The full detail still goes to the log, where operators can see it.
       this.logger.error(
         `End Request for ${request.path}`,
-        `method=${request.method} status=${status} code_error=${
-          message.code_error ? message.code_error : null
-        } message=${message.message ? message.message : null}`,
-        status >= 500 && exception instanceof Error
-          ? (exception.stack ?? '')
-          : '',
+        summary,
+        exception instanceof Error ? (exception.stack ?? '') : '',
       );
     } else {
-      this.logger.warn(
-        `End Request for ${request.path}`,
-        `method=${request.method} status=${status} code_error=${
-          message.code_error ? message.code_error : null
-        } message=${message.message ? message.message : null}`,
-      );
+      this.logger.warn(`End Request for ${request.path}`, summary);
     }
   }
 }

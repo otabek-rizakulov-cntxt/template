@@ -18,7 +18,10 @@ export class LocalStrategy extends PassportStrategy(Strategy) {
     private readonly logger: LoggerService,
     private readonly exceptionService: ExceptionsService,
   ) {
-    super();
+    // The login DTO carries `email`, not passport-local's default `username`.
+    // Without this the strategy never finds the identifier and rejects every
+    // request, valid credentials included.
+    super({ usernameField: 'email' });
   }
 
   async validate(email: string, password: string) {

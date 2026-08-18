@@ -3,7 +3,6 @@ import { DynamicModule, Module } from '@nestjs/common';
 import { GetUserByEmail } from '@usecases/user/get-user-by-email.usecase';
 
 import { Symbols } from '@domain/symbols';
-import { UserRepositoryI } from '@domain/repositories/user-repository.interface';
 
 import { LoggerModule } from '@infrastructure/logger/logger.module';
 import { LoggerService } from '@infrastructure/logger/logger.service';
@@ -20,9 +19,9 @@ export class UserUseCasesProxyModule {
       module: UserUseCasesProxyModule,
       providers: [
         {
-          inject: [LoggerService, DatabaseUserRepository],
           provide: Symbols.GET_USER_BY_EMAIL_USECASES_PROXY,
-          useFactory: (logger: LoggerService, repo: UserRepositoryI) =>
+          inject: [LoggerService, DatabaseUserRepository],
+          useFactory: (logger: LoggerService, repo: DatabaseUserRepository) =>
             new UseCaseProxy(new GetUserByEmail(logger, repo)),
         },
       ],

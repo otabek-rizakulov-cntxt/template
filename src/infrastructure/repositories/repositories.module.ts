@@ -1,30 +1,12 @@
 import { Module } from '@nestjs/common';
-import { PrismaModule } from '@config/prisma/prisma.module';
-import { PrismaService } from '@config/prisma/prisma.service';
 
-import { BcryptService } from '@infrastructure/services/bcrypt/bcrypt.service';
-import { PrismaRepository } from '@infrastructure/repositories/prisma.repository';
+import { PrismaModule } from '@config/prisma/prisma.module';
 import { DatabaseUserRepository } from '@infrastructure/repositories/user.repository';
+import { DatabaseTransactionRepository } from '@infrastructure/repositories/transaction.repository';
 
 @Module({
   imports: [PrismaModule],
-  providers: [
-    BcryptService,
-    DatabaseUserRepository,
-    PrismaRepository,
-    {
-      provide: 'UserRepository',
-      inject: [PrismaService],
-      useFactory: (prismaService: PrismaService) =>
-        new PrismaRepository(prismaService, 'users'),
-    },
-    {
-      provide: 'TransactionRepository',
-      inject: [PrismaService],
-      useFactory: (prismaService: PrismaService) =>
-        new PrismaRepository(prismaService, 'transaction'),
-    },
-  ],
-  exports: [DatabaseUserRepository, PrismaRepository],
+  providers: [DatabaseUserRepository, DatabaseTransactionRepository],
+  exports: [DatabaseUserRepository, DatabaseTransactionRepository],
 })
 export class RepositoriesModule {}

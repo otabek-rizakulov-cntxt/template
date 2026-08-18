@@ -1,14 +1,32 @@
+# Build context exclusions.
+#
+# NOTE: `src` and `prisma` must NOT be listed here — the build stage compiles
+# from them. Excluding `src` previously produced an image with no application
+# code in it.
+
 node_modules
-npm-debug.log
-Dockerfile
-.dockerignore
+dist
+build
+coverage
+
 .git
 .gitignore
-README.md
-dist
-test
-src
+.github
+
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Never bake real secrets into an image layer.
 .env
-.env.local
-.env.development
-.env.production 
+.env.*
+!.env.example
+
+*.log
+npm-debug.log
+pnpm-debug.log
+.DS_Store
+.vscode
+.idea
+
+architecture-review.pptx
