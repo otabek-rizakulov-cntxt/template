@@ -590,3 +590,77 @@ security response headers        -> 6
 The lesson is the same one §3.6 records: the defect was not in the reasoning, it
 was in never running the thing. The image assertion in CI now covers 8.1 and 8.2;
 8.3 and 8.4 are compose-only and are not yet covered by an automated check.
+
+---
+
+## 9. Follow-up: CI workflow defects found by running it
+
+Same pattern as §8 — the workflow was authored but never executed, and pushing it
+surfaced three defects. All were found by replaying the job's steps locally.
+
+### 9.1 `packageManager` collided with the action's `version` input
+
+Pinning `packageManager` in §8.1 broke the setup step, which also declared a
+version:
+
+```
+Error: Multiple versions of pnpm specified:
+  - version 10 in the GitHub Action config with the key "version"
+  - version pnpm@10.33.0 in the package.json with the key "packageManager"
+```
+
+**Fix:** removed the `version` input. `pnpm/action-setup` reads `packageManager`,
+which is the same single source of truth the Dockerfile derives from.
+
+### 9.2 Flag forwarding silently broke lint and test
+
+`pnpm run <script> -- --flag` passes the `--` separator through to the underlying
+binary, which then reads the flag as a positional argument:
+
+```
+$ pnpm run lint -- --max-warnings=0
+  ESLint: No files matching the pattern "--max-warnings=0" were found.
+
+$ pnpm run test -- --coverage --ci
+  jest: No tests found
+  Pattern: --coverage|--ci - 0 matches
+```
+
+Both steps **failed on argument parsing, not on code quality** — so the pipeline
+would have gone red without ever linting or running a test. Worse, had the exit
+codes been swallowed, it would have reported success while checking nothing.
+
+**Fix:** the flags moved into the scripts themselves — `lint` now carries
+`--max-warnings=0`, and `test:ci` / `test:e2e:ci` were added. CI calls the scripts
+with no arguments, so a developer runs exactly what CI runs.
+
+### 9.3 CI never ran the e2e suite
+
+The workflow ran unit tests only. The e2e suite — which boots the real `AppModule`
+and is the check that the DI graph resolves and routes are mounted where
+documented — was not executed. Added as its own step.
+
+Also bumped `actions/checkout` and `actions/setup-node` to `v5`, which run on
+Node 24, clearing the Node 20 deprecation warning.
+
+### Verified: every step of the `verify` job replayed locally
+
+Against a PostgreSQL 16 container, with the workflow's own environment:
+
+```
+1. pnpm install --frozen-lockfile   OK
+2. pnpm prisma generate             OK
+3. pnpm prisma migrate deploy       OK
+4. pnpm run lint                    OK
+5. pnpm run typecheck               OK
+6. pnpm run test:ci                 OK   63 passed
+7. pnpm run test:e2e:ci             OK    5 passed
+8. pnpm run build                   OK
+```
+
+The lint gate was negative-tested by introducing an unused variable:
+`pnpm run lint` exited 1, confirming the step fails the build rather than passing
+vacuously.
+
+Still not executed: the workflow on GitHub's runners, and the `docker` job (its
+image build and assertion were verified locally in §8).

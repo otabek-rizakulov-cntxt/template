@@ -13,7 +13,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\"",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --max-warnings=0",
     "lint:fix": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:migrate": "prisma migrate dev",
@@ -22,8 +22,10 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
+    "test:ci": "jest --coverage --ci",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "jest --config ./test/jest-e2e.json"
+    "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:e2e:ci": "jest --config ./test/jest-e2e.json --ci"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
