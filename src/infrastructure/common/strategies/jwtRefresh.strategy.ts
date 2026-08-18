@@ -24,7 +24,9 @@ export class JwtRefreshTokenStrategy extends PassportStrategy(
   'jwt-refresh-token',
 ) {
   constructor(
-    private readonly configService: EnvironmentConfigService,
+    // Plain parameter, not a property: it is only needed to build the strategy
+    // options below, so keeping it as a field would be dead state.
+    configService: EnvironmentConfigService,
     @Inject(Symbols.LOGIN_USECASES_PROXY)
     private readonly loginUseCaseProxy: UseCaseProxy<LoginUseCases>,
     private readonly logger: LoggerService,

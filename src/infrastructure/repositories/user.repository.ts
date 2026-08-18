@@ -2,62 +2,53 @@ import { Users } from '@prisma/client';
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '@config/prisma/prisma.service';
-import { UserRepositoryI } from '@domain/repositories/user-repository.interface';
+import {
+  RegisterUserI,
+  UserRepositoryI,
+} from '@domain/repositories/user-repository.interface';
 
-import { BcryptService } from '@infrastructure/services/bcrypt/bcrypt.service';
-import { PrismaRepository } from '@infrastructure/repositories/prisma.repository';
-
+/**
+ * Prisma adapter for the user port.
+ *
+ * It implements only the operations the port declares — it no longer inherits a
+ * generic passthrough of the Prisma client, so use cases cannot reach past this
+ * surface, and every query here is written against an explicit model.
+ */
 @Injectable()
-export class DatabaseUserRepository
-  extends PrismaRepository<'users'>
-  implements UserRepositoryI
-{
-  constructor(
-    protected readonly prisma: PrismaService,
-    private readonly encrypt: BcryptService,
-  ) {
-    super(prisma, 'users');
+export class DatabaseUserRepository implements UserRepositoryI {
+  constructor(private readonly prisma: PrismaService) {}
+
+  getUserByEmail(email: string): Promise<Users | null> {
+    return this.prisma.users.findFirst({ where: { email } });
   }
 
-  updateLastLogin(): Promise<void> {
-    throw new Error('Method not implemented.');
-  }
-
-  async updateRefreshToken(email: string, refreshToken: string): Promise<void> {
-    await this.update({
-      where: {
-        email: email,
-      },
-      data: {
-        hashRefreshToken: refreshToken,
-      },
+  async updateLastLogin(email: string): Promise<void> {
+    await this.prisma.users.update({
+      where: { email },
+      data: { lastLogin: new Date() },
     });
   }
 
-  async getUserByEmail(email: string): Promise<Users | null> {
-    const adminUserEntity = (await this.findFirst({
-      where: {
-        email: email,
-      },
-    })) as Users | null;
-    if (!adminUserEntity) {
-      return null;
-    }
-    return adminUserEntity;
+  async updateRefreshToken(
+    email: string,
+    hashedRefreshToken: string,
+  ): Promise<void> {
+    await this.prisma.users.update({
+      where: { email },
+      data: { hashRefreshToken: hashedRefreshToken },
+    });
   }
 
-  async register(
-    user: Pick<Users, 'email' | 'name' | 'password'>,
-  ): Promise<Users> {
-    const password = await this.encrypt.hash(user.password);
+  async clearRefreshToken(email: string): Promise<void> {
+    await this.prisma.users.update({
+      where: { email },
+      data: { hashRefreshToken: null },
+    });
+  }
 
-    const userRegister = (await this.create({
-      data: {
-        name: user.name,
-        email: user.email,
-        password: password,
-      },
-    })) as Users;
-    return userRegister;
+  register(user: RegisterUserI): Promise<Users> {
+    // The password arrives already hashed; hashing is a rule owned by the
+    // register use case, not by the persistence adapter.
+    return this.prisma.users.create({ data: user });
   }
 }

@@ -24,7 +24,7 @@ import { RegisterDto } from './validators/register-dto.class';
 
 import { Symbols } from '@domain/symbols';
 
-// import { LoginGuard } from '@infrastructure/common/guards/login.guard'
+import { LoginGuard } from '@infrastructure/common/guards/login.guard';
 import { JwtAuthGuard } from '@infrastructure/common/guards/jwtAuth.guard';
 import JwtRefreshGuard from '@infrastructure/common/guards/jwtRefresh.guard';
 import { UseCaseProxy } from '@infrastructure/usecases-proxy/usecases-proxy';
@@ -35,8 +35,13 @@ import { LogoutUseCases } from '@usecases/auth/logout.usecases';
 import { RegisterUseCases } from '@usecases/auth/register.usecases';
 import { IsAuthenticatedUseCases } from '@usecases/auth/is-authenticated.usecases';
 
+/**
+ * Shape of the request on a guarded route. `user` is populated by the Passport
+ * strategy behind the guard, so it is non-optional here — every handler that
+ * reads it is protected by LoginGuard, JwtAuthGuard or JwtRefreshGuard.
+ */
 interface RequestWithUser extends ExpressRequest {
-  user?: { email: string };
+  user: { email: string };
   res: Response;
 }
 
@@ -64,16 +69,21 @@ export class AuthController {
   ) {}
 
   @Post('login')
-  @ApiBearerAuth()
+  @UseGuards(LoginGuard)
   @ApiBody({ type: AuthLoginDto })
   @ApiOperation({ description: 'login' })
-  async login(@Body() auth: AuthLoginDto, @Request() request: RequestWithUser) {
+  @ApiResponse({ status: 401, description: 'Invalid email or password' })
+  async login(@Request() request: RequestWithUser) {
+    // LoginGuard runs LocalStrategy, which verifies the password and populates
+    // request.user. Never trust the request body for identity here.
+    const email = request.user.email;
+
     const accessTokenCookie = this.loginUseCaseProxy
       .getInstance()
-      .getCookieWithJwtToken(auth.email);
+      .getCookieWithJwtToken(email);
     const refreshTokenCookie = await this.loginUseCaseProxy
       .getInstance()
-      .getCookieWithJwtRefreshToken(auth.email);
+      .getCookieWithJwtRefreshToken(email);
     request.res.setHeader('Set-Cookie', [
       accessTokenCookie,
       refreshTokenCookie,
@@ -84,8 +94,10 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({ description: 'logout' })
-  logout(@Request() request: RequestWithUser) {
-    const cookie = this.logoutUseCaseProxy.getInstance().execute();
+  async logout(@Request() request: RequestWithUser) {
+    const cookie = await this.logoutUseCaseProxy
+      .getInstance()
+      .execute(request.user?.email ?? '');
     request.res.setHeader('Set-Cookie', cookie);
     return 'Logout successful';
   }

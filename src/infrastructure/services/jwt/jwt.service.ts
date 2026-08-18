@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+
 import {
   IJwtService,
   IJwtServicePayload,
@@ -9,11 +10,13 @@ import {
 export class JwtTokenService implements IJwtService {
   constructor(private readonly jwtService: JwtService) {}
 
-  async checkToken(token: string): Promise<IJwtServicePayload> {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const decode = await this.jwtService.verifyAsync(token);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
-    return decode;
+  /**
+   * `verifyAsync` is generic, so naming the expected payload here removes the
+   * `any` that previously had to be suppressed at both the assignment and the
+   * return.
+   */
+  checkToken(token: string): Promise<IJwtServicePayload> {
+    return this.jwtService.verifyAsync<IJwtServicePayload>(token);
   }
 
   createToken(
@@ -21,9 +24,6 @@ export class JwtTokenService implements IJwtService {
     secret: string,
     expiresIn: string,
   ): string {
-    return this.jwtService.sign(payload, {
-      secret: secret,
-      expiresIn: expiresIn,
-    });
+    return this.jwtService.sign(payload, { secret, expiresIn });
   }
 }

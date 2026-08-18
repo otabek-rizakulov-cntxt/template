@@ -14,28 +14,35 @@ datasource db {
 }
 
 model Users {
-  id               String   @id @default(uuid())
+  id               String    @id @default(uuid())
   password         String
-  email            String   @unique
+  email            String    @unique
   name             String
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  lastLogin        DateTime?
   hashRefreshToken String?
+
+  transactions Transaction[]
 
   @@map("users")
 }
 
 model Transaction {
-  id         String             @id @default(uuid())
+  id         String            @id @default(uuid())
   amount     Decimal
   type       TransactionType
-  date       DateTime           @default(now())
-  status     TransactionStatus? @default(pending)
+  date       DateTime          @default(now())
+  status     TransactionStatus @default(pending)
   categoryId String
-  category   Category           @relation(fields: [categoryId], references: [id])
-  createdAt  DateTime           @default(now())
-  updatedAt  DateTime?          @updatedAt
+  category   Category          @relation(fields: [categoryId], references: [id])
+  userId     String
+  user       Users             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
 
+  @@index([userId, date])
+  @@index([categoryId])
   @@map("transactions")
 }
 

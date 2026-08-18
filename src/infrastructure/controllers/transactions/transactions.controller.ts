@@ -1,88 +1,122 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   Inject,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
+  Query,
   Req,
-  Request,
   UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
-  ApiBody,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { Request as ExpressRequest, Response } from 'express';
+import { Request as ExpressRequest } from 'express';
 
 import { Symbols } from '@domain/symbols';
 
 import { JwtAuthGuard } from '@infrastructure/common/guards/jwtAuth.guard';
 import { UseCaseProxy } from '@infrastructure/usecases-proxy/usecases-proxy';
-import { ApiResponseType } from '@infrastructure/common/swagger/response.decorator';
 
-import { LogoutUseCases } from '@usecases/auth/logout.usecases';
-import { IsAuthenticatedUseCases } from '@usecases/auth/is-authenticated.usecases';
 import { CreateTransactionUsecase } from '@usecases/transactions/create-transaction.usecases';
-import { TransactionsDto } from './validators/transactions-dto.class';
-import { IsAuthPresenter } from '../auth/auth.presenter';
+import { DeleteTransactionUseCases } from '@usecases/transactions/delete-transaction.usecases';
+import { GetTransactionByIdUseCases } from '@usecases/transactions/get-transaction-by-id.usecases';
+import { ListTransactionsUseCases } from '@usecases/transactions/list-transactions.usecases';
+import { UpdateTransactionUseCases } from '@usecases/transactions/update-transaction.usecases';
+
+import {
+  CreateTransactionDto,
+  ListTransactionsQueryDto,
+  UpdateTransactionDto,
+} from './validators/transactions-dto.class';
 
 interface RequestWithUser extends ExpressRequest {
-  user?: { email: string };
-  res: Response;
+  user: { id: string; email: string };
 }
 
-@Controller({
-  version: '1',
-  path: 'transactions',
-})
-@ApiTags('auth')
-@ApiResponse({
-  status: 401,
-  description: 'No authorization token was found',
-})
-@ApiResponse({ status: 500, description: 'Internal error' })
-export class AuthController {
+@Controller({ version: '1', path: 'transactions' })
+@ApiTags('transactions')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
+@ApiResponse({ status: 401, description: 'No authorization token was found' })
+@ApiResponse({ status: 404, description: 'Transaction not found' })
+export class TransactionsController {
   constructor(
     @Inject(Symbols.CREATE_TRANSACTION_USECASES_PROXY)
-    private readonly createTransactionUseCaseProxy: UseCaseProxy<CreateTransactionUsecase>,
-    @Inject(Symbols.LOGOUT_USECASES_PROXY)
-    private readonly logoutUseCaseProxy: UseCaseProxy<LogoutUseCases>,
-    @Inject(Symbols.IS_AUTHENTICATED_USECASES_PROXY)
-    private readonly isAuthUseCaseProxy: UseCaseProxy<IsAuthenticatedUseCases>,
+    private readonly createProxy: UseCaseProxy<CreateTransactionUsecase>,
+    @Inject(Symbols.READ_TRANSACTION_USECASES_PROXY)
+    private readonly readProxy: UseCaseProxy<GetTransactionByIdUseCases>,
+    @Inject(Symbols.LIST_TRANSACTIONS_USECASES_PROXY)
+    private readonly listProxy: UseCaseProxy<ListTransactionsUseCases>,
+    @Inject(Symbols.UPDATE_TRANSACTION_USECASES_PROXY)
+    private readonly updateProxy: UseCaseProxy<UpdateTransactionUseCases>,
+    @Inject(Symbols.DELETE_TRANSACTION_USECASES_PROXY)
+    private readonly deleteProxy: UseCaseProxy<DeleteTransactionUseCases>,
   ) {}
 
-  @Post('create')
-  @ApiBearerAuth()
-  @ApiBody({ type: TransactionsDto })
-  @ApiOperation({ description: 'create' })
-  login() {
-    // const create = await this.createTransactionUseCaseProxy.getInstance().execute(data)
-    return null;
+  @Post()
+  @ApiOperation({ description: 'Create a transaction for the current user' })
+  create(@Req() request: RequestWithUser, @Body() body: CreateTransactionDto) {
+    // The owner is taken from the verified token, never from the request body,
+    // so a client cannot create a transaction against another user's account.
+    return this.createProxy.getInstance().execute({
+      ...body,
+      amount: body.amount as never,
+      status: body.status ?? 'pending',
+      userId: request.user.id,
+    });
   }
 
-  @Post('logout')
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ description: 'logout' })
-  logout(@Request() request: RequestWithUser) {
-    const cookie = this.logoutUseCaseProxy.getInstance().execute();
-    request.res.setHeader('Set-Cookie', cookie);
-    return 'Logout successful';
+  @Get()
+  @ApiOperation({ description: 'List the current user’s transactions' })
+  list(
+    @Req() request: RequestWithUser,
+    @Query() query: ListTransactionsQueryDto,
+  ) {
+    return this.listProxy.getInstance().execute(request.user.id, query);
   }
 
-  @Get('is_authenticated')
-  @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ description: 'is_authenticated' })
-  @ApiResponseType(IsAuthPresenter, false)
-  async isAuthenticated(@Req() request: RequestWithUser) {
-    const user = await this.isAuthUseCaseProxy
+  @Get(':id')
+  @ApiOperation({ description: 'Read one of the current user’s transactions' })
+  read(
+    @Req() request: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.readProxy.getInstance().execute(id, request.user.id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({
+    description: 'Update one of the current user’s transactions',
+  })
+  update(
+    @Req() request: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: UpdateTransactionDto,
+  ) {
+    return this.updateProxy
       .getInstance()
-      .execute(request.user?.email ?? '');
-    const response = new IsAuthPresenter();
-    response.email = user?.email || '';
-    return response;
+      .execute(id, request.user.id, body as never);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  @ApiOperation({
+    description: 'Delete one of the current user’s transactions',
+  })
+  @ApiResponse({ status: 204, description: 'Transaction deleted' })
+  remove(
+    @Req() request: RequestWithUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.deleteProxy.getInstance().execute(id, request.user.id);
   }
 }

@@ -9,6 +9,7 @@ export const Symbols = {
     'CreateTransactionUseCasesProxy',
   ),
   READ_TRANSACTION_USECASES_PROXY: Symbol.for('ReadTransactionUseCasesProxy'),
+  LIST_TRANSACTIONS_USECASES_PROXY: Symbol.for('ListTransactionsUseCasesProxy'),
   UPDATE_TRANSACTION_USECASES_PROXY: Symbol.for(
     'UpdateTransactionUseCasesProxy',
   ),

@@ -1,4 +1,5 @@
 import { Users } from '@prisma/client';
+import { PublicUser, toPublicUser } from '@domain/model/user';
 import { JWTConfig } from '@domain/config/jwt.interface';
 import { ILogger } from '@domain/logger/logger.interface';
 import { IBcryptService } from '@domain/adapters/bcrypt.interface';
@@ -43,19 +44,20 @@ export class LoginUseCases {
     return cookie;
   }
 
-  async validateUserForLocalStrategy(email: string, pass: string) {
+  async validateUserForLocalStrategy(
+    email: string,
+    pass: string,
+  ): Promise<PublicUser | null> {
     const user = await this.userRepository.getUserByEmail(email);
     if (!user) {
       return null;
     }
     const match = await this.bcryptService.compare(pass, user.password);
-    if (user && match) {
-      await this.updateLoginTime(user.email);
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { password, ...result } = user;
-      return result;
+    if (!match) {
+      return null;
     }
-    return null;
+    await this.updateLoginTime(user.email);
+    return toPublicUser(user);
   }
 
   async validateUserForJWTStrategy(email: string) {

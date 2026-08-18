@@ -2,7 +2,7 @@ import { applyDecorators, Type } from '@nestjs/common';
 import { ApiOkResponse, getSchemaPath } from '@nestjs/swagger';
 import { ResponseFormat } from '../../common/interceptors/response.interceptor';
 
-export const ApiResponseType = <TModel extends Type<any>>(
+export const ApiResponseType = <TModel extends Type<unknown>>(
   model: TModel,
   isArray: boolean,
 ) => {

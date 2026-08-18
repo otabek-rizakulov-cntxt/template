@@ -1,4 +1,5 @@
 import { Transaction } from '@prisma/client';
+
 import { ILogger } from '@domain/logger/logger.interface';
 import {
   CreateTransactionI,
@@ -11,12 +12,12 @@ export class CreateTransactionUsecase {
     private readonly transactionRepository: TransactionRepositoryI,
   ) {}
 
-  async execute(data: Transaction): Promise<CreateTransactionI | null> {
-    const result = await this.transactionRepository.createTransaction(data);
+  async execute(data: CreateTransactionI): Promise<Transaction> {
+    const created = await this.transactionRepository.createTransaction(data);
     this.logger.log(
       'CreateTransactionUseCases execute',
-      'New transaction has been inserted',
+      `Transaction ${created.id} has been created`,
     );
-    return result;
+    return created;
   }
 }

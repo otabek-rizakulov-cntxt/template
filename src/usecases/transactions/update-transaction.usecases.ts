@@ -1,27 +1,41 @@
 import { Transaction } from '@prisma/client';
-import { ILogger } from '@domain/logger/logger.interface';
-import { TransactionRepositoryI } from '@domain/repositories/transaction-repository.interface';
 
-import { ExceptionsService } from '@infrastructure/exceptions/exceptions.service';
+import { ILogger } from '@domain/logger/logger.interface';
+import { IException } from '@domain/exceptions/exceptions.interface';
+import {
+  TransactionRepositoryI,
+  UpdateTransactionI,
+} from '@domain/repositories/transaction-repository.interface';
 
 export class UpdateTransactionUseCases {
   constructor(
     private readonly logger: ILogger,
     private readonly transactionRepository: TransactionRepositoryI,
-    private readonly exceptionService: ExceptionsService,
+    private readonly exceptionService: IException,
   ) {}
 
-  async execute(id: string, data: Transaction): Promise<string | null> {
-    const transaction = await this.transactionRepository.getTransaction(id);
+  async execute(
+    id: string,
+    userId: string,
+    data: UpdateTransactionI,
+  ): Promise<Transaction> {
+    const updated = await this.transactionRepository.updateTransaction(
+      id,
+      userId,
+      data,
+    );
 
-    if (!transaction) {
-      this.exceptionService.NotFoundException();
+    if (!updated) {
+      this.exceptionService.NotFoundException({
+        message: `Transaction ${id} was not found`,
+        code_error: 404,
+      });
     }
-    const result = await this.transactionRepository.updateTransaction(id, data);
+
     this.logger.log(
       'UpdateTransactionUseCases execute',
-      'Transaction has been updated',
+      `Transaction ${id} has been updated`,
     );
-    return result;
+    return updated;
   }
 }

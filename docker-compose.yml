@@ -1,0 +1,60 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: template
+    ports:
+      # Override POSTGRES_PORT if 5432 is already taken on your machine.
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d template']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Migrations run as their own step, from the build stage, because the runtime
+  # image deliberately ships without the Prisma CLI (a dev dependency). Runs to
+  # completion and exits; `api` waits for it to succeed.
+  migrate:
+    build:
+      context: .
+      target: build
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/template?schema=public
+    command: ['pnpm', 'prisma', 'migrate', 'deploy']
+    restart: 'no'
+
+  api:
+    build:
+      context: .
+      target: runtime
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    # `environment` takes precedence over `env_file`, which in turn overrides the
+    # image's own ENV. Without pinning NODE_ENV here, a .env carrying
+    # NODE_ENV=development would run this production image in development mode —
+    # publishing Swagger and returning raw error messages.
+    environment:
+      NODE_ENV: production
+      # Inside the compose network the database is reachable by service name,
+      # not on localhost.
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/template?schema=public
+      APP_PORT: 3000
+    ports:
+      - '3000:3000'
+
+volumes:
+  postgres-data:

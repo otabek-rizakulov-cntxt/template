@@ -1,5 +1,5 @@
 import { DynamicModule, Module } from '@nestjs/common';
-import { UserRepositoryI } from '@domain/repositories/user-repository.interface';
+
 import { Symbols } from '@domain/symbols';
 
 import { EnvironmentConfigModule } from '@config/environment-config/environment-config.module';
@@ -12,6 +12,8 @@ import { JwtTokenService } from '@infrastructure/services/jwt/jwt.service';
 import { BcryptModule } from '@infrastructure/services/bcrypt/bcrypt.module';
 import { UseCaseProxy } from '@infrastructure/usecases-proxy/usecases-proxy';
 import { BcryptService } from '@infrastructure/services/bcrypt/bcrypt.service';
+import { ExceptionsModule } from '@infrastructure/exceptions/exceptions.module';
+import { ExceptionsService } from '@infrastructure/exceptions/exceptions.service';
 import { RepositoriesModule } from '@infrastructure/repositories/repositories.module';
 import { DatabaseUserRepository } from '@infrastructure/repositories/user.repository';
 
@@ -19,13 +21,13 @@ import { LoginUseCases } from '@usecases/auth/login.usecases';
 import { LogoutUseCases } from '@usecases/auth/logout.usecases';
 import { RegisterUseCases } from '@usecases/auth/register.usecases';
 import { IsAuthenticatedUseCases } from '@usecases/auth/is-authenticated.usecases';
-import { ExceptionsService } from '@infrastructure/exceptions/exceptions.service';
 
 @Module({
   imports: [
     LoggerModule,
     JwtModule,
     BcryptModule,
+    ExceptionsModule,
     EnvironmentConfigModule,
     RepositoriesModule,
   ],
@@ -36,6 +38,7 @@ export class AuthUseCasesProxyModule {
       module: AuthUseCasesProxyModule,
       providers: [
         {
+          provide: Symbols.LOGIN_USECASES_PROXY,
           inject: [
             LoggerService,
             JwtTokenService,
@@ -43,12 +46,11 @@ export class AuthUseCasesProxyModule {
             DatabaseUserRepository,
             BcryptService,
           ],
-          provide: Symbols.LOGIN_USECASES_PROXY,
           useFactory: (
             logger: LoggerService,
             jwt: JwtTokenService,
             config: EnvironmentConfigService,
-            userRepo: UserRepositoryI,
+            userRepo: DatabaseUserRepository,
             bcrypt: BcryptService,
           ) =>
             new UseCaseProxy(
@@ -56,23 +58,27 @@ export class AuthUseCasesProxyModule {
             ),
         },
         {
-          inject: [],
           provide: Symbols.LOGOUT_USECASES_PROXY,
-          useFactory: () => new UseCaseProxy(new LogoutUseCases()),
+          inject: [DatabaseUserRepository],
+          useFactory: (userRepo: DatabaseUserRepository) =>
+            new UseCaseProxy(new LogoutUseCases(userRepo)),
         },
         {
-          inject: [DatabaseUserRepository],
           provide: Symbols.REGISTER_USECASES_PROXY,
+          inject: [DatabaseUserRepository, ExceptionsService, BcryptService],
           useFactory: (
-            userRepo: UserRepositoryI,
-            exceptionService: ExceptionsService,
+            userRepo: DatabaseUserRepository,
+            exceptions: ExceptionsService,
+            bcrypt: BcryptService,
           ) =>
-            new UseCaseProxy(new RegisterUseCases(userRepo, exceptionService)),
+            new UseCaseProxy(
+              new RegisterUseCases(userRepo, exceptions, bcrypt),
+            ),
         },
         {
-          inject: [DatabaseUserRepository],
           provide: Symbols.IS_AUTHENTICATED_USECASES_PROXY,
-          useFactory: (userRepo: UserRepositoryI) =>
+          inject: [DatabaseUserRepository],
+          useFactory: (userRepo: DatabaseUserRepository) =>
             new UseCaseProxy(new IsAuthenticatedUseCases(userRepo)),
         },
       ],

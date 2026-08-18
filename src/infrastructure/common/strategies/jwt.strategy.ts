@@ -1,12 +1,16 @@
 import { Request } from 'express';
-import { Symbols } from '@domain/symbols';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PassportStrategy } from '@nestjs/passport';
 import { Inject, Injectable } from '@nestjs/common';
+
+import { Symbols } from '@domain/symbols';
+
 import { LoginUseCases } from '@usecases/auth/login.usecases';
+
 import { LoggerService } from '@infrastructure/logger/logger.service';
 import { UseCaseProxy } from '@infrastructure/usecases-proxy/usecases-proxy';
 import { ExceptionsService } from '@infrastructure/exceptions/exceptions.service';
+import { EnvironmentConfigService } from '@config/environment-config/environment-config.service';
 
 interface JwtPayload {
   email: string;
@@ -15,6 +19,7 @@ interface JwtPayload {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
+    configService: EnvironmentConfigService,
     @Inject(Symbols.LOGIN_USECASES_PROXY)
     private readonly loginUseCaseProxy: UseCaseProxy<LoginUseCases>,
     private readonly logger: LoggerService,
@@ -22,11 +27,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
-        (request: Request) => {
-          return request?.cookies?.Authentication as string | null;
-        },
+        (request: Request) =>
+          (request?.cookies?.Authentication as string | null) ?? null,
       ]),
-      secretOrKey: process.env.JWT_SECRET,
+      // Read through the validated config adapter rather than process.env, so
+      // there is one place where a missing secret is caught: application boot.
+      secretOrKey: configService.getJwtSecret(),
     });
   }
 

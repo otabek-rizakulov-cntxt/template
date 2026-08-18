@@ -1,25 +1,59 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ILogger } from '@domain/logger/logger.interface';
 
+/**
+ * Emits one JSON object per line so log aggregators can index the fields
+ * instead of parsing prose. Plain-text lines could not be correlated once more
+ * than one request was in flight.
+ */
 @Injectable()
 export class LoggerService extends Logger implements ILogger {
-  debug(context: string, message: string) {
+  private emit(
+    level: 'debug' | 'info' | 'error' | 'warn' | 'verbose',
+    context: string,
+    message: string,
+    trace?: string,
+  ): void {
+    const line = JSON.stringify({
+      level,
+      time: new Date().toISOString(),
+      context,
+      message,
+      ...(trace ? { trace } : {}),
+    });
+
+    if (level === 'error') {
+      super.error(line);
+      return;
+    }
+    if (level === 'warn') {
+      super.warn(line);
+      return;
+    }
+    super.log(line);
+  }
+
+  override debug(context: string, message: string): void {
     if (process.env.NODE_ENV !== 'production') {
-      super.debug(`[DEBUG] ${message}`, context);
+      this.emit('debug', context, message);
     }
   }
-  log(context: string, message: string) {
-    super.log(`[INFO] ${message}`, context);
+
+  override log(context: string, message: string): void {
+    this.emit('info', context, message);
   }
-  error(context: string, message: string, trace?: string) {
-    super.error(`[ERROR] ${message}`, trace, context);
+
+  override error(context: string, message: string, trace?: string): void {
+    this.emit('error', context, message, trace);
   }
-  warn(context: string, message: string) {
-    super.warn(`[WARN] ${message}`, context);
+
+  override warn(context: string, message: string): void {
+    this.emit('warn', context, message);
   }
-  verbose(context: string, message: string) {
+
+  override verbose(context: string, message: string): void {
     if (process.env.NODE_ENV !== 'production') {
-      super.verbose(`[VERBOSE] ${message}`, context);
+      this.emit('verbose', context, message);
     }
   }
 }
